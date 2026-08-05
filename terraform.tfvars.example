@@ -1,0 +1,144 @@
+# ==============================================================================
+#  oci-dns-zone — terraform.tfvars
+# ==============================================================================
+#  Copy this file to `terraform.tfvars`, set the values, then run:
+#      tofu init && tofu apply        (or:  terraform init && terraform apply)
+#
+# AUTHENTICATION — Oracle Cloud (OCI):
+#   The OCI provider (source oracle/oci) authenticates through an `auth`
+#   strategy argument that defaults to API-key signing.
+#   Quick start: oci session authenticate (browser SSO → writes a
+#   SecurityToken profile; for static keys use `oci setup config`)
+#   Environment variables Terraform reads:
+#     TF_VAR_tenancy_ocid — Tenancy OCID; consumed by a `tenancy_ocid` variable wired into the provider
+#     TF_VAR_user_ocid — User OCID for API-key auth
+#     TF_VAR_fingerprint — Fingerprint of the uploaded API signing key
+#     TF_VAR_private_key_path — Filesystem path to the PEM private signing key
+#     TF_VAR_private_key  (secret) — PEM private key contents (alternative to the path)
+#   Full guide (auth + remote state):  docs/CONNECTING-PROVIDERS.md#oci
+#
+#  Secrets below read "REPLACE_ME" — never commit real secrets. Prefer
+#  TF_VAR_<name> environment variables or a secrets manager.
+#  Status: static-validated, live-test pending (see README.md).
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+#  REQUIRED — you must set these
+# ------------------------------------------------------------------------------
+
+# compartment_id  —  string  (REQUIRED)
+#   OCID of the compartment that owns the zone, monitors and steering policies.
+#   Constraint: compartment_id must be a compartment or tenancy OCID
+#   (ocid1.compartment.* / ocid1.tenancy.*).
+compartment_id = "ocid1.compartment.oc1..aaaaaaaaexampleexampleexampleexampleexampleexampleexampleexa"
+
+# zone_name  —  string  (REQUIRED)
+#   Fully-qualified zone name (e.g. "example.com").
+#   Constraint: zone_name must be a valid FQDN (e.g. example.com).
+zone_name      = "example.com"
+
+# ------------------------------------------------------------------------------
+#  OPTIONAL — defaults shown; uncomment a line to override
+# ------------------------------------------------------------------------------
+
+# scope  —  string  (optional, default: "GLOBAL")
+#   Zone scope: GLOBAL (public, internet-resolvable) or PRIVATE (resolvable only
+#   inside the VCNs bound to view_id).
+#   Constraint: scope must be GLOBAL or PRIVATE.
+scope          = "GLOBAL"
+
+# view_id  —  string  (optional, default: null)
+#   OCID of the private DNS view that scopes a PRIVATE zone to its bound VCNs.
+#   Required when scope = PRIVATE; ignored for GLOBAL zones.
+#   Constraint: view_id must be a DNS view OCID (ocid1.dnsview.*).
+# view_id = null
+
+# dnssec_enabled  —  bool  (optional, default: true)
+#   Enable DNSSEC origin authentication on public (GLOBAL) zones. Ignored
+#   (forced off) for PRIVATE zones, which do not support DNSSEC.
+dnssec_enabled = true
+
+# record_sets  —  map  (optional, default: {})
+#   Record sets keyed by logical name. domain is the FQDN; rtype is the record
+#   type (A, AAAA, CNAME, MX, TXT, ...); records is a list of { ttl, rdata }.
+#   Constraint: Every record_sets entry must contain at least one record.
+record_sets = {
+  apex_a = {
+    domain = "example.com"
+    rtype  = "A"
+    records = [
+      { ttl = 300, rdata = "203.0.113.10" },
+      { ttl = 300, rdata = "203.0.113.11" },
+    ]
+  }
+  www_cname = {
+    domain  = "www.example.com"
+    rtype   = "CNAME"
+    records = [{ ttl = 300, rdata = "example.com." }]
+  }
+}
+
+# health_check_monitors  —  map  (optional, default: {})
+#   HTTP health-check monitors keyed by logical name, feeding liveness data to
+#   steering policies. protocol is HTTP or HTTPS; interval_in_seconds is 10, 30
+#   or 60; timeout_in_seconds is 10, 20, 30 or 60.
+#   Constraint: Monitor protocol must be HTTP or HTTPS.
+health_check_monitors = {
+  primary = {
+    targets  = ["203.0.113.10"]
+    protocol = "HTTPS"
+    path     = "/healthz"
+    port     = 443
+  }
+}
+
+# steering_policies  —  map  (optional, default: {})
+#   Traffic-management steering policies keyed by logical name. template is
+#   FAILOVER / LOAD_BALANCE / ROUTE_BY_GEO / ROUTE_BY_ASN / ROUTE_BY_IP /
+#   CUSTOM. health_check_monitor_key references health_check_monitors.
+#   domain_name is the public-zone domain the policy attaches to. answers and
+#   rules follow the OCI steering-policy model.
+#   Constraint: Every steering policy template must be FAILOVER, LOAD_BALANCE,
+#   ROUTE_BY_GEO, ROUTE_BY_ASN, ROUTE_BY_IP or CUSTOM.
+steering_policies = {
+  failover = {
+    template                 = "FAILOVER"
+    domain_name              = "app.example.com"
+    health_check_monitor_key = "primary"
+
+    answers = [
+      { name = "primary", rtype = "A", rdata = "203.0.113.10", pool = "us-east" },
+      { name = "backup", rtype = "A", rdata = "203.0.113.20", pool = "us-west" },
+    ]
+
+    rules = [
+      {
+        rule_type = "HEALTH"
+      },
+      {
+        rule_type     = "PRIORITY"
+        default_count = 1
+        default_answer_data = [
+          { answer_condition = "answer.pool == 'us-east'", value = 1 },
+          { answer_condition = "answer.pool == 'us-west'", value = 2 },
+        ]
+      },
+      {
+        rule_type     = "LIMIT"
+        default_count = 1
+      },
+    ]
+  }
+}
+
+# freeform_tags  —  map  (optional, default: {})
+#   Freeform tags applied to every resource this module creates.
+freeform_tags = {
+  environment = "example"
+  managed_by  = "iac-bazaar"
+}
+
+# defined_tags  —  map  (optional, default: {})
+#   Defined tags ("Namespace.Key" = value) applied to every resource.
+# defined_tags = {}
