@@ -8,7 +8,7 @@ This module passes static validation (`tofu validate`, tflint and checkov) but h
 
 ```hcl
 module "dns_zone" {
-  source  = "CyberCoreSystems/dns-zone/oci"
+  source  = "registry.terraform.io/CyberCoreSystems/dns-zone/oci"
   version = "~> 1.0"
 
   # See variables.tf for the full input contract.
